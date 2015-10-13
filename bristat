@@ -1,0 +1,306 @@
+#!/bin/bash
+
+# \file bristat
+   # \author Stefano Forti
+   #  Si dichiara che il contenuto di questo file e' in ogni sua parte opera
+   #  originale dell' autore. 
+
+media=0
+perse=0
+user=0
+k=0 #conta il numero di utenti registrati in USERS[]
+infiles=0
+infilesreadable=0
+filenumber="$#"
+nogoodopt=0
+
+#verifica se ci sono argomenti
+if [ -z "$*" ]; then
+	exit 1;
+fi
+
+#conteggio opzioni, se è presente -u memorizza lo user su cui si vuole eseguire lo script; conta se ci sono file e file leggibili tra gli argomenti
+
+for opt in $@; do
+	if [[ "$opt" == -* ]] && [ "$opt" != "-u"  ] && [ "$opt" != "-m"  ] && [ "$opt" != "-p"  ]; then
+		exit 1
+	fi
+
+	if [ "$opt" == "-u"  ]; then
+		(( user++ ))
+	fi
+	
+	if [ "$pre" == "-u" ]; then
+		utente=$opt
+	fi
+
+	if [ "$opt" == "-m"  ]; then
+		(( media++ ))
+	fi
+	
+	if [ "$opt" == "-p"  ]; then
+		(( perse++ ))
+	fi
+	
+	if [ -f $opt ]; then
+		(( infiles++ ))
+	fi
+	
+	if [ -r $opt ]; then
+		(( infilesreadable++ ))
+	fi 
+	
+	pre=$opt
+	
+done
+
+#verifica che le opzioni richieste siano lecite, non ripetute e che ci siano file di input leggibili
+
+if (( nogoodopt != 0 )) || (( $user > 1 )) || (( $media > 1 )) || (( $perse > 1 )) || (( $infiles == 0 )) || (( $infilesreadable == 0 )); then
+	exit 1
+fi
+
+#verifica che il parametro di -u non sia nullo, un file o un'opzione
+
+if (( user == 1 )); then
+	if	[ -z $utente ] || [ -f $utente ] || [[ $utente == -* ]]; then
+		exit 1
+	fi
+fi
+
+#per i file passati come argomento e leggibili, legge dalla riga 0 i giocatori, dalla riga 22 il vincitore della partita, dalla riga 23 il punteggio; salva i dati in vettori "paralleli" USERS[] (contenente gli utenti e utile all'indirizzamento degli altri vettori), WON[] (delle vittorie), PLAYED[] (delle partite giocate), SCOREW[] (dei punteggi conseguiti nelle vittorie), SCOREL[] (dei punteggi conseguiti nelle sconfitte)
+
+for file in $@; do
+	if [ -r $file ]; then
+	
+		exec 3< $file
+		linea=0
+		IFS=: #si sostituisce il separatore di default coi due punti
+		
+		while read -u 3 var1 var2 ; do
+		
+			if (( $linea == 0 )); then
+				A=$var1
+				B=$var2 
+				
+				foundA=0
+				foundB=0
+				
+				a=0
+				b=0
+				
+				PLAYED[$k]=0;
+				
+				while (( $foundA == 0 )) && (( $a < $k )) ; do
+					if [ "$A" == "${USERS[$a]}" ]; then
+						foundA=1
+						(( PLAYED[$a]=${PLAYED[$a]}+1 ))
+					else
+						(( a+=1 ))
+					fi
+				done
+					
+				while (( $foundB == 0 )) && (( $b < $k )); do
+					if [ "$B" == "${USERS[$b]}" ]; then
+						foundB=1
+						(( PLAYED[$b]=${PLAYED[$b]}+1 ))
+					else
+						(( b+=1 ))
+					fi
+				done
+				
+				
+				if (( $foundA == 0 )); then	
+					USERS[$k]="$A"
+					(( PLAYED[$k]=${PLAYED[$k]}+1 ))
+					(( WON[$k]=0 ))
+					(( SCOREW[$k]=0 ))
+					(( SCOREL[$k]=0 ))
+					a=$k
+					(( k++ ))
+					
+				fi
+				
+				if (( $foundB == 0 )); then
+					USERS[$k]="$B"
+					(( PLAYED[$k]=${PLAYED[$k]}+1 ))
+					(( WON[$k]=0 ))
+					(( SCOREW[$k]=0 ))
+					(( SCOREL[$k]=0 ))
+					b=$k
+					(( k++ ))
+				fi
+				
+			fi
+			
+			if (( $linea == 22 )); then
+				winner=$var2	
+			fi
+			
+			if (( $linea == 23 )); then
+				points=$var2
+				i=0
+				
+				if [ "$winner" == "$A" ]; then
+					(( WON[$a]=${WON[$a]}+1 ))
+					(( SCOREW[$a]= ${SCOREW[$a]}+$points ))
+					(( SCOREL[$b]+=(( 120-$points )) ))
+				fi
+				
+				if [ "$winner" == "$B" ]; then
+ 					(( WON[$b]=${WON[$b]}+1 ))
+ 					(( SCOREW[$b]=${SCOREW[$b]}+$points ))
+					(( SCOREL[$a]+=(( 120-$points )) ))
+				fi
+         fi 
+         
+			(( linea=$linea+1  ))
+		done
+	
+	fi
+done
+
+exec 3>&-
+
+#elaborazione dati
+
+#no opzioni: numero partite vinte #
+if (( $user == 0 )) && (( $perse == 0 )) && (( $media == 0 )); then
+	for (( i = 0; i < k; i++ )); do
+		echo "user ${USERS[$i]} :: partite vinte: ${WON[i]}"
+	done
+fi
+
+#partite vinte con media #
+if (( $user == 0 )) && (( $perse == 0 )) && (( $media == 1 )); then
+	for (( i=0; i<k; i++ )); do
+	   if (( ${WON[$i]} != 0 )); then
+			(( med=${SCOREW[$i]}/${WON[$i]} ))
+		else
+			med=0;
+		fi
+		echo "user ${USERS[$i]} :: partite vinte: ${WON[i]} media punti: $med"
+	done
+fi
+
+#partite perse con media #
+if (( $user == 0 )) && (( $perse == 1 )) && (( $media == 1 )); then
+	for (( i=0; i<k; i++ )); do
+		(( lost=${PLAYED[$i]}-${WON[$i]} ))
+		if (( $lost != 0 )); then
+			(( med=${SCOREL[$i]}/$lost ))
+		else
+			(( med=0 ))
+		fi
+		echo "user ${USERS[$i]} :: partite perse: $lost media punti: $med"
+	done
+fi
+
+#partite perse #
+if (( $user == 0 )) && (( $perse == 1 )) && (( $media == 0 )); then
+	for (( i=0; i<k; i++ )); do
+		(( lost=${PLAYED[$i]}-${WON[$i]} ))
+		echo "user ${USERS[$i]} :: partite perse: $lost"
+	done
+fi
+
+#partite vinte un utente #
+if (( $user == 1 )) && (( $perse == 0 )) && (( $media == 0 )); then
+	found=0
+	i=0
+	
+	while (( $found == 0 )) && (( $i < $k )) ; do
+		if [ "$utente" == "${USERS[$i]}" ] ; then
+			found=1
+		else
+			(( i+=1 ))
+		fi
+	done
+	
+	if (( $found == 0 )); then
+		echo "user $utente :: partite vinte: 0"
+	else
+		echo "user ${USERS[$i]} :: partite vinte: ${WON[i]}"	
+	fi
+fi
+
+#partite perse un utente #
+if (( $user == 1 )) && (( $perse == 1 )) && (( $media == 0 )); then
+
+	found=0
+	i=0
+	
+	while (( $found == 0 )) && (( $i < $k )) ; do
+		if [ "$utente" == "${USERS[$i]}" ]; then
+			found=1
+		else
+			(( i+=1 ))
+		fi
+	done
+	
+	if (( $found == 0 )); then
+		echo "user $utente :: partite perse: 0"
+	else
+		(( lost=${PLAYED[$i]}-${WON[$i]} ))
+		echo "user ${USERS[$i]} :: partite perse: $lost"
+	fi
+fi
+
+#partite vinte e media un utente
+if (( user == 1 )) && (( perse == 0 )) && (( media == 1 )); then
+
+	found=0
+	i=0
+	
+	while (( $found == 0 )) && (( $i < $k )) ; do
+		if [ "$utente" == "${USERS[$i]}" ] ; then
+			found=1
+		else
+			(( i+=1 ))
+		fi
+	done
+	
+	if (( $found == 0 )); then
+		echo "user $utente :: partite vinte: 0 media punti: 0"
+	fi
+	
+	if (( $found == 1 )); then	
+		if (( ${WON[$i]} != 0 )); then
+				(( med=${SCOREW[$i]}/${WON[$i]} ))
+			else
+				med=0;
+		fi
+		echo "user ${USERS[$i]} :: partite vinte: ${WON[i]} media punti: $med"	
+	fi
+fi
+
+#partite perse e media un utente #
+if (( $user == 1 )) && (( $perse == 1 )) && (( $media == 1 )); then
+
+	found=0
+	i=0
+	
+	while (( $found == 0 )) && (( $i < $k )) ; do
+		if [ "$utente" == "${USERS[$i]}" ] ; then
+			found=1
+		else
+			(( i+=1 ))
+		fi
+	done
+	
+	if (( $found == 0 )); then
+		echo "user $utente :: partite perse: 0 media punti: 0"
+	fi
+	
+	if (( $found == 1 )); then
+		(( lost=${PLAYED[$i]}-${WON[$i]} ))
+			if (( $lost != 0 )); then
+				(( med=${SCOREL[$i]}/$lost ))
+			else
+				(( med=0 ))
+			fi
+		echo "user ${USERS[$i]} :: partite perse: $lost media punti: $med"
+	fi
+fi
+
+echo Bye	
